@@ -1,15 +1,11 @@
-A kmer-Based Profile Hidden Markov Model (kPHMM) approach to Taxonomic Identification of DNA Barcode Data.
+## A kmer-Based Profile Hidden Markov Model (kPHMM) approach to Taxonomic Identification of DNA Barcode Data.
 
-To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.2.1 or higher):
-kPHMM_Train&Test.R 
-PHMM_Functions.R 
-kmercountwritecolumns.cpp 
-A folder containing sequence files in .fas or .fa format (zipped seqData folder provided for testing).
-
+### To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.2.1 or higher):
+kPHMM_Train&Test.R, PHMM_Functions.R, kmercountwritecolumns.cpp, the folder containing sequence files in .fas or .fa format (zipped seqData folder provided for testing).
 Optionally, for plotting of tests results from the pipeline, the PHMM_plotting_function.R file is required.
 
-Package requirements for core functionality of the pipeline:
-
+### Package requirements for core functionality of the pipeline:
+```
 # Bioinformatics and Sequence Handling
 # install.packages("BiocManager")
 # BiocManager::install("Biostrings")
@@ -92,8 +88,8 @@ library(gtools)
 # install.packages("crayon")
 library(crayon)
 
-For plotting, additional packages are required:
-
+# For plotting, additional packages are required:
+  
 # install.packages("ggplot2")
 library(ggplot2)
 # install.packages("ggforce")
@@ -115,3 +111,4 @@ library(gtable)
 library(egg)
 # install.packages("cowplot")
 library(cowplot)
+```
