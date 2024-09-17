@@ -1,114 +1,52 @@
 ## A kmer-Based Profile Hidden Markov Model (kPHMM) approach to Taxonomic Identification of DNA Barcode Data.
 
-### To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.2.1 or higher):
-kPHMM_Train&Test.R, PHMM_Functions.R, kmercountwritecolumns.cpp, the folder containing sequence files in .fas or .fa format (zipped seqData folder provided for testing).
-Optionally, for plotting of tests results from the pipeline, the PHMM_plotting_function.R file is required.
+### To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.4.1 or higher):
+kPHMM_Train&CV.R, kPHMM_Functions.R, seqstokmers.cpp and the folder containing sequence files in .fas or .fa format (zipped seqData folder provided for testing).
+
+#### *** If running the pipeline to completion, ensure roughly 1 Gb of disk space is available per ~25k total sequences in your working directory.
 
 ### Package requirements for core functionality of the pipeline:
 ```
-# Bioinformatics and Sequence Handling
-# install.packages("BiocManager")
-# BiocManager::install("Biostrings")
-library(Biostrings)
-# BiocManager::install("GenomicRanges", force = TRUE)
-library(GenomicRanges)
-# DNAbin format
-# install.packages("ape")
-library(ape)
+# BiocManager for Bioconductor packages if not installed
+if(!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
 
-# Functional Programming and Iteration
-# install.packages("foreach")
-library(foreach)
+# Install (if not installed) and load any bioconductor packages 
+# (Biostrings is the only ones being used here)
+# Define a function to check and install Bioconductor packages
+load_bioPackages <- function(package_name) {
+  if (!require(package_name, character.only = TRUE)) {
+    BiocManager::install(package_name)
+    library(package_name, character.only = TRUE)
+  }
+}
 
-# File writing in tsv/csv and 
-# reading in chunked data files
-# install.packages("readr")
-library(readr)
-# install.packages("chunked)
-library(chunked)
+# Load the required Bioconductor packages
+load_bioPackages("Biostrings")
+load_bioPackages("treeio")
 
-# Efficient Data Manipulation
-# install.packages("tidyverse")
-library(tidyverse)
-# install.packages("plyr")
-library(plyr)
-# install.packages("dplyr")
-library(dplyr)
-# install.packages("data.table")
-library(data.table)
-# install.packages("tibble")
-library(tibble)
-# install.packages("purr")
-library(purrr)
-# install.packages("stringr")
-library(stringr)
-# install.packages("tidyr")
-library(tidyr)
+# List of CRAN packages used in this pipeline
+packages <- c("DBI", "ape", "kmer", "aphid", "foreach", "readr", 
+              "tidyverse", "plyr", "data.table", "splitTools", 
+              "crayon", "future", "doFuture", "doRNG", "progressr", 
+              "Rcpp", "cutpointr", "matrixTests", "rstatix", 
+              "gtools", "RSQLite", "qs", "blaster","pryr", 
+              "benchmarkme", "ggplot2", "gridExtra", "ggtree", 
+              "tidytree", "taxonomizr", "colorspace","scales", 
+              "magick", "viridis", "ggpubr")
 
-# Cross-validation setup
-# install.packages("splitTools")
-library(splitTools)
+# Install (if not installed) and load CRAN packages
+for (i in 1:length(packages)) {
+  if (!require(packages[i], character.only = TRUE)) {
+    install.packages(packages[i], dependencies = TRUE)
+    library(packages[i], character.only = TRUE)
+  }
+}
 
-# Parallel processing functions
-# install.packages("future")
-library(future)
-# install.packages("doFuture")
-library(doFuture)
-# install.packages('doRNG')
-library(doRNG)
+# One var for all packages used
+packages <- sort(append(c("Biostrings", "treeio"), packages))
 
-# Kmer count matrices
-# install.packages("kmer")
-library(kmer)
-# Faster matrix col sums
-# install.packages("Rfast")
-library(Rfast)
-# C++ Integration
-# install.packages("Rcpp")
-library("Rcpp")
-
-# For performing fast statistical testing on matrices of kmer data
-# install.packages("matrixTests")
-library(matrixTests)
-
-# Pvalue adjustment
-# install.packages("rstatix")
-library(rstatix)
-
-# Sequence Alignment and Profile HMMs
-# install.packages("aphid")
-library(aphid)
-
-# Kmer Permutations
-# install.packages("gtools")
-# library(RcppAlgos)
-library(gtools)
-
-# Custom coloring of messages with cat
-# install.packages("crayon")
-library(crayon)
-
-# For plotting, additional packages are required:
-  
-# install.packages("ggplot2")
-library(ggplot2)
-# install.packages("ggforce")
-library(ggforce)
-library(lattice)
-# install.packages("grid")
-library(grid)
-# install.packages("gridExtra")
-library(gridExtra)
-# install.packages("gridtext")
-library(gridtext)
-# install.packages("viridis")
-library(viridis)
-# install.packages("cutpointr")
-library(cutpointr)
-# install.packages("gtable")
-library(gtable)
-# install.packages("egg")
-library(egg)
-# install.packages("cowplot")
-library(cowplot)
+# Functions get loaded from a separate R script and must be loaded before the analysis proceeds
+source("kPHMM_Functions.R")
 ```
