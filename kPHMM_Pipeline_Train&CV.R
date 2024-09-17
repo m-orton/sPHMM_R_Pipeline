@@ -421,7 +421,7 @@ modelData <- kphmm_Train(kmerResults, kmerData, dfTaxa, klen, numFolds,
 # number of cores is quite high but otherwise you may need to lower the number of cores by 1 or 2
 
 # For testing purposes, to quickly test a random sample of test sequences, set to NA to ignore
-numSampleTest <- 4
+numSampleTest <- 50
 
 # Classification strategy options param - must be one of Hierarchical, Multi-Tiered, Post-Processing or MaxScore, default - Hierarchical.
 # Must be set to MaxScore if only running at one taxonomic rank.
