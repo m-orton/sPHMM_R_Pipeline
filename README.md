@@ -1,6 +1,6 @@
 ## A kmer-Based Profile Hidden Markov Model (kPHMM) approach to Taxonomic Identification of DNA Barcode Data.
 
-### To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.4.1 or higher):
+#### To run this pipeline, the following files are needed in the same working directory in R/RStudio (R version 4.4.1 or higher):
 kPHMM_Train&CV.R, kPHMM_Functions.R, seqstokmers.cpp and the folder containing sequence files in .fas or .fa format (zipped seqData folder provided for testing).
 
 #### *** If running the pipeline to completion, ensure roughly 1 Gb of disk space is available per ~25k total sequences in your working directory.
