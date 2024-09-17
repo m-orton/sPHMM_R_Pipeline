@@ -5,7 +5,7 @@ kPHMM_Train&CV.R, kPHMM_Functions.R, seqstokmers.cpp and the folder containing s
 
 #### *** If running the pipeline to completion, ensure roughly 1 Gb of disk space is available per ~25k total sequences in your working directory.
 
-### Package requirements for core functionality of the pipeline:
+#### Package requirements for core functionality of the pipeline:
 ```
 # BiocManager for Bioconductor packages if not installed
 if(!requireNamespace("BiocManager", quietly = TRUE)) {
