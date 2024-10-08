@@ -207,6 +207,14 @@ subclass_Filter <- function(dfTaxa, subclassRank, groupMinNum, groupMaxNum){
   }
 }
 
+# Internal function to list out tables from a db given a table name pattern 
+list_dbTable <- function(db_path, pattern) {
+  # Open connection and and use list tables with str_detect to find the relevant tables
+  con <- dbConnect(RSQLite::SQLite(), db_path)
+  on.exit(dbDisconnect(con))
+  dbListTables(con)[str_detect(dbListTables(con), pattern)]
+}
+
 # Internal function to write out serialized data to a database
 .write_dbTable <- function(db_path, table_name, data) {
   # Serialize and compress data
@@ -231,6 +239,31 @@ read_dbTable <- function(dbPath, data) {
 
 # Internal function for scaling values 0-1
 .scaleValues <- function(x){(x-min(x))/(max(x)-min(x))}
+
+# Simple internal function to extract kmers from one sequence
+.kmer_Extract <- function(sequence, k) {
+  # Initialize an empty vector to store the k-mers
+  kmers <- c()
+  
+  # Loop over the sequence to extract k-mers
+  for (i in 1:(nchar(sequence) - k + 1)) {
+    kmer <- substr(sequence, i, i + k - 1)
+    
+    # Check if the k-mer contains gaps ('-' or '.')
+    if (grepl("[-.]", kmer)) {
+      # Replace gapped k-mers with "-"
+      kmers <- c(kmers, "-")
+    } else {
+      kmers <- c(kmers, kmer)
+    }
+  }
+  
+  # Number kmers from 1 to the total length of vector
+  names(kmers) <- as.character(1:length(kmers))
+  
+  # Return kmers
+  return(kmers)
+}
 
 ##### Stratified Sampling Function #####
 
@@ -757,9 +790,6 @@ kmer_discrimFind <- function(kmerFiles, dfTaxa, numFolds, subclassRank,
     # Bench end
     benchE <- .bench_Func(runBenchmark, klen[i], "kmer_discrimFind", "None", 0, "End")
     bench[[i]] <- rbind(benchS, benchE)
-    
-    # Garbage collection
-    gc()
   }
   
   # Aggregate bench results
@@ -1017,7 +1047,6 @@ kphmm_Train <- function(kmerResults, kmerFiles, dfTaxa, klen, numFolds, numMaxit
   }
   
   # Message update
-  #cat("\n")
   cat(green(paste0("Starting model training...\n")))
   
   # Outermost list names
@@ -1497,7 +1526,10 @@ kphmm_Train <- function(kmerResults, kmerFiles, dfTaxa, klen, numFolds, numMaxit
             # Modify the column names of each klen
             foreach(l=1:length(matMix)) %do% {
               colnames(matMix[[l]])[1:ncol(matMix[[l]])] <- paste0(uniqKlenMix[l], "_", 
-                                                                   colnames(matMix[[l]][,1:ncol(matMix[[l]])]), sep="")}
+                                                                   colnames(matMix[[l]][,1:ncol(matMix[[l]])]), sep="")
+              
+            }
+            
             # Col bind dfs together
             matMix <- dplyr::bind_cols(matMix)
             
@@ -1646,8 +1678,6 @@ kphmm_Train <- function(kmerResults, kmerFiles, dfTaxa, klen, numFolds, numMaxit
         .GlobalEnv$benchData[[i]] <- benchData[[i]]
       }
     }
-    # Garbage collection
-    gc()
   })
   
   # Name all completed models with rank and group names
@@ -1760,7 +1790,7 @@ kphmm_Train <- function(kmerResults, kmerFiles, dfTaxa, klen, numFolds, numMaxit
     # Calculate proportional counts
     kCountW_Setup <- kCountW_Setup[, .(countProp = count / max(kCountW_Setup$count, na.rm = TRUE)), by = c("recordID")]
     
-    # Sum of counts for refinement
+    # Sum of counts for setup
     sumCount_Setup <- sum(kCountW_Setup$count)
     
     # Sequence weights for model setup
@@ -1913,9 +1943,6 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
     select(recordID, ordID, famID, genID, spID) %>%
     as.data.table()
   
-  # List for cData (classification data)
-  cData <<- list()
-  
   # Read in kPosData for each klen
   kPosData <- list()
   kPosData <- rbindlist(foreach(i=1:length(kmerData[[2]])) %do% {
@@ -1933,23 +1960,12 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   # Garbage collection
   gc()
   
-  # List of unique records by fold
-  if(is.na(numSampleTest)){
-    unique(kPosData$recordID)
-  } else {
-    # running a sample of numSample recordIDs
-    uniqRec <- sample(unique(kPosData$recordID), numSampleTest)
-  }
-  
-  # randomly sort recordID to get random recordIDs for testing
-  uniqRec <- sample(uniqRec, length(uniqRec))
-  
   # Create naming vectors for the taxonomy column of dfTaxa
   ids <- paste0(tolower(ifelse(subclassRank != "Species", substr(subclassRank, 1, 3), substr(subclassRank, 1, 2))), "ID", sep="")
   nameVecFolds <- paste0("Fold", 1:numFolds, sep="")
   nameVecTax <- c("recordID", ids, nameVecFolds)
   
-  # Create new set of fold columns for dfTaxa
+  # Create a set of fold columns for dfTaxa with separate
   dfTaxa <- dfTaxa %>%
     ungroup() %>%
     select(recordID, taxonomy, dna) %>%
@@ -1958,18 +1974,37 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   # Grab the necessary fold data first before proceeding
   foldCols <- paste0("Fold", 1:numFolds, sep="")
   
-  # Grab all fold data for dfTaxa 
+  # Grab all fold data for dfTaxa to see which records belong to each fold
   dfTaxa <- rbindlist(foreach(i=1:numFolds) %do% {
-      # Subset the data into different folds
-      dfTaxa[which(dfTaxa[,i+5] == "train"),] %>%
-        mutate(folds = paste0("f", i))
+    # Subset the data into different folds
+    dfTaxa[which(dfTaxa[,i+5] == "train"),] %>%
+      mutate(folds = paste0("f", i))
   }) %>% select(!all_of(foldCols)) %>% as.data.table()
-
+  
   # Remove folds column
   rm(foldCols)
-
-  # Seqs for blast db (blaster package) used for querying of recordID to check start and stop site difference, 
-  # Sampling up to a max of 50/25/10/5 sequences for each group and fold depending on rank
+  
+  # Check for pre-existing records already run through classifications in the database 
+  # (for pipeline testing in case running again after a crash and dont want to lose progress)
+  existRecs <- list_dbTable(dbPath, "class_chunk_")
+  existRecs <- unique(rbindlist(foreach(i=1:length(existRecs)) %do% read_dbTable(dbPath, existRecs[i]))$recordID)
+  
+  # List of unique records by fold
+  if(is.na(numSampleTest)){
+    uniqRec <- unique(kPosData[(!recordID %in% existRecs)]$recordID)
+  } else {
+    # running a sample of numSample recordIDs
+    uniqRec <- sample(unique(kPosData[(!recordID %in% existRecs)]$recordID), numSampleTest)
+  }
+  
+  # Divide records into chunks of a size determined by the command seen below in chunkSize to ensure load balancing during parallel processing
+  # After each chunk is run, the results then get written to the db before a new chunk is run (this is to the mitigate loss of data in the event of crashes,
+  # so chunks are kept relatively small)
+  chunkSize <- ceiling(length(uniqRec) / (numCores * 5)) * numCores  # ensures chunk size is a multiple of numCores
+  recChunks <- split(uniqRec, ceiling(seq_along(uniqRec) / chunkSize))
+  
+  # Seqs for blast db (blaster package) used for querying of recordID to check start and stop site differences, 
+  # Sampling up to a max of 100/50/25/10 sequences for each group and fold depending on rank
   groupDict <- rbind(
     # Order
     dfTaxa[, .(group = ordID, recordID, dna, rank = "Order", folds, famID)]
@@ -1985,62 +2020,95 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
     [order(folds), .SD[sample(.N, min(10, .N))], by = .(group, folds)]
   ) 
   
+  # Var for applicable klens used to test, include mixed klens if TRUE
+  if(mixedModels == TRUE){ klenDat <- append(klen, "MixedKlen") } else { klenDat <- klen }
+
   # Message update
   cat(green(paste0("Starting classifications...\n")))
   
   # Classifications for each rank (all that apply in the subclassRank var)
-  # With a progress bar, iterate through each recordID and perform classification on models through each taxonomic rank
-  invisible(capture.output(cData <<- with_progress({
-    p <- progressor(along = 1:length(uniqRec), offset = 1)
-    foreach(i = seq_along(uniqRec), .options.RNG = doRNGseed) %dorng% {
-      p(paste0("Performing classifications for RecordID: ", uniqRec[i]))
-      # Run the internal function .kphmm_classifySubclassCV
-      tryCatch({ .kphmm_classifySubclassCV(
-                    kPosData[(recordID == uniqRec[i])],
-                    modelData$Models,
-                    uniqRec[i],
-                    recordDict,
-                    subclassRank,
-                    klen,
-                    dfTaxa,
-                    dbPath, 
-                    classStrategy, 
-                    weights, 
-                    mixedModels,
-                    runBenchmark, 
-                    groupDict,
-                    majorityVoting, 
-                    mvWt) }, error = function(e) { NULL })
+  # With progress, iterate through each record chunk and recordID, then perform classification on models through each taxonomic rank
+  invisible(capture.output(with_progress({
+    p <- progressor(along = 1:length(recChunks), offset = 1)
+    # For each chunk
+    foreach(i = seq_along(recChunks)) %do% {
+      p(paste0("Performing classifications for recordID chunk: ", i, sep=""))
+      # Run classifications on all records for a given chunk
+      cDataChunk <- foreach(j = seq_along(recChunks[[i]]), .options.RNG = doRNGseed) %dorng% {
+        # Run the internal function .kphmm_classifySubclassCV, else if error write out to data frame directly
+        tryCatch({ .kphmm_classifySubclassCV(
+                     kPosData[(recordID == recChunks[[i]][j])],
+                     modelData$Models,
+                     recChunks[[i]][j],
+                     recordDict,
+                     subclassRank,
+                     klenDat,
+                     dfTaxa[(recordID == recChunks[[i]][j])],
+                     dbPath, 
+                     classStrategy, 
+                     weights, 
+                     mixedModels,
+                     runBenchmark,
+                     groupDict,
+                     majorityVoting, 
+                     mvWt) },
+                 
+          # Data frame used for records that fail and give an error below (so they can be added to classify fail)
+          # a z-score of -10 is used to simply indicate an unusable forward score 
+          error = function(e) { NULL }
+        )
+      }
+      
+      # rbind cData
+      cData <- rbindlist(foreach(j=1:length(cDataChunk)) %do% cDataChunk[[j]][["cData"]])
+      
+      # Write classification results for the chunk run in this iteration
+      tableClass <- paste0("class_chunk_", i, "_recFirst_", unique(cData$recordID)[1], sep="")
+      .write_dbTable(dbPath, tableClass, cData)
+      
+      # If run benchmarking is TRUE
+      if(runBenchmark == TRUE){
+        # rbind benchData
+        benchData <- rbindlist(foreach(j=1:length(cDataChunk)) %do% cDataChunk[[j]][["benchData"]])
+        
+        # write out benchmarking data to db for the chunk run in this iteration
+        tableBench <- paste0("bench_chunk_", i, "_recFirst_", unique(cData$recordID)[1], sep="")
+        .write_dbTable(dbPath, tableBench, benchData)
+        rm(benchData, tableBench)
+      }
+      
+      # rm cData and tableClass for this iteration
+      rm(cData, cDataChunk, tableClass)
     }
   })))
-  
+
   # Remove unnecessary vars
   rm(kPosData)
   gc()
   
   # If runbenchmark is TRUE, separate classifications from benchmark data
   if(runBenchmark == TRUE){
-    # Use the bench aggregate function to aggregate benchmark data according to klen
-    benchData <- rbindlist(foreach(i=1:length(cData)) %do% cData[[i]][["benchData"]])
-    benchData <<- .bench_Aggregate(runBenchmark, benchData, length(cData), numCores, numFolds, "kphmm_ClassifyCV")
+    # Read in all bench data
+    benchData <- list_dbTable(dbPath, "bench_chunk")
+    numRecs <- length(benchData)
     
-    # Write out benchData to db
+    # Use the bench aggregate function to aggregate benchmark data according to klen
+    benchData <- rbindlist(foreach(i=1:length(benchData)) %do% read_dbTable(dbPath, benchData[i]))
+    benchData <- .bench_Aggregate(runBenchmark, benchData, numRecs, numCores, numFolds, "kphmm_ClassifyCV")
+    
+    # Write out aggregated benchData to db
     benchTableName <- "bench_kphmm_ClassifyCV"
     .write_dbTable(dbPath, benchTableName, benchData)
-    
-    # Rbindlist the classification results into one large dataframe and then split by rank
-    cData <<- rbindlist(foreach(i=1:length(cData)) %do% cData[[i]][["cData"]]) %>%
-      mutate(rank = factor(rank, levels = c("Order", "Family", "Genus", "Species"))) %>%
-      group_by(rank) %>%
-      group_split()
-    
-  # Else just rbindlist the classification results into one large dataframe and then split by rank
-  } else {
-    cData <<- rbindlist(foreach(i=1:length(cData)) %do% cData[[i]][["cData"]]) %>%
-      mutate(rank = factor(rank, levels = c("Order", "Family", "Genus", "Species"))) %>%
-      group_by(rank) %>%
-      group_split()
   }
+  
+  # Read in all classification data
+  cData <- list_dbTable(dbPath, "class_chunk")
+  
+  # Rbind the classification results into one large dataframe and then split by rank
+  cData <- rbindlist(foreach(i=1:length(cData)) %do% read_dbTable(dbPath, cData[i])) %>%
+    mutate(rank = factor(rank, levels = c("Order", "Family", "Genus", "Species"))) %>%
+    group_by(rank) %>%
+    group_split()
 
   # Subset out instances where classifications could not be performed 
   # ex: usually because no discrim kmers exist at a given klen for a certain taxonomic group
@@ -2067,13 +2135,8 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
                        "ClassifyFail" = list())
   
   # Character for all klens and combined klens
-  if(mixedModels == TRUE){
-    klenDat <- append(klen, "MixedKlen")
-    if(majorityVoting == TRUE){
-      klenDat <- append(klenDat, "MajorityVoting")
-    }
-  } else {
-    klenDat <- klen
+  if(majorityVoting == TRUE){
+    klenDat <- append(klenDat, "MajorityVoting")
   }
 
   # Iterate through each rfunc# Iterate through each rank, determining CorrectIDs, CorrectID%, AccMetrics
@@ -2174,13 +2237,9 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   return(modelResults)
 }
 
-#kPosDataSub <- kPosData[(recordID == uniqRec[1])]
-#models <- modelData$Models
-#uniqRec <- uniqRec[1]
-
 # Internal function to run the .kphmm_classifyForwardCV function below at each taxonomic rank depending on which taxonomic ranks are being run
 .kphmm_classifySubclassCV <- function(kPosDataSub, models, uniqRec, recordDict, subclassRank, 
-                                      klen, dfTaxa, dbPath, classStrategy, weights, mixedModels, 
+                                      klenDat, dfTaxa, dbPath, classStrategy, weights, mixedModels, 
                                       runBenchmark, groupDict, majorityVoting, mvWt) {
   # Empty list for results
   cData <- list()
@@ -2188,13 +2247,6 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   # Find all applicable folds to test
   uniqFolds <- unique(kPosDataSub$fold)
   
-  # Find all applicable klens to test, include mixed klens if TRUE
-  if(mixedModels == TRUE){
-    klenDat <- append(klen, "MixedKlen")
-  } else {
-    klenDat <- klen
-  }
-
   # Hierarchical Strategy
   if(classStrategy == "Hierarchical"){
     # Iterate through all ranks, subsetting family by order chosen, genus by family chosen, species by genus chosen
@@ -2411,7 +2463,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   
   # Rbindlist cData across all ranks into one dataframe
   cData[["cData"]] <- rbindlist(cData[["cData"]])
-
+  
   # If majority voting is TRUE
   if(majorityVoting == TRUE){
     # Seprate copy of original results
@@ -2430,7 +2482,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
     
     # Merge weights with majVote
     majVote <- merge(mvWt, majVote)
-
+    
     # Separate out z_scores and take a mean zscore grouping by rank, fold and group
     majVoteZ <- majVote[, .(z_score = mean(z_score)), by = .(fold, rank, group)]
     
@@ -2583,21 +2635,6 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   return(cData)
 }
 
-#kPosDataSub <- kPosData[(recordID == uniqRec[1])]
-#models <- modelData$Models
-
-#foldD <- "f1"
-#klenD <- "MixedKlen"
-#rank <- "Order"
-#models <- models[str_detect(names(models), rank)]
-#kPosDataSub <- if(klenD == "MixedKlen"){
-#  kTest <- kPosDataSub[(fold == foldD & klen != "1")]
-#} else {
-#  kTest <- kPosDataSub[(fold == foldD & klen == klenD)]
-#}
-
-#.kphmm_classifyForwardCV(kPosDataSub, models, uniqRec, rank, foldD, subclassRank, klenD, dfTaxa, dbPath, classStrategy, runBenchmark, groupDict)
-
 # Internal function to subset by position according to each model and use the forward algorithm on each model with each set of kmer data 
 # (corresponding to one recordID each)
 .kphmm_classifyForwardCV <- function(kPosDataSub, models, uniqRec, rank, foldD, subclassRank, klenD, dfTaxa, dbPath, classStrategy, runBenchmark, groupDict) {
@@ -2607,7 +2644,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
   
   # Filter models by that specific klen and fold
   models <- Filter(Negate(is.null), lapply(models, function(m) m[[foldD]][[klenD]]))
-
+  
   # If model length is greater than 1 - since one model doesnt tell you anything and has no point of comparison
   if(length(models)>1){
     # If not a MixedKlen model
@@ -2622,34 +2659,34 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
           # group being compared
           groupDat <- models[[j]]$modelData$Group
           #print(paste0(foldD, "_", klenD, "_", groupDat, "_", j, sep=""))
-            
+          
           # If not running kmer length 1
           if(klenD != 1){
             # blastCheck db table
             blastCheck <- .kphmm_blastCheck(dfTaxa[(recordID == uniqRec), .(Id = recordID, Seq = dna)][1,], 
                                             groupDict[(group == groupDat & folds == foldD), .(Id = recordID, Seq = dna)])
-              
+            
             # if blastCheck does not have 0 rows, continue
             if(nrow(blastCheck)!=0){
               # Query match start and end
               qS <- as.numeric(blastCheck$QueryMatchStart)
               qE <- as.numeric(blastCheck$QueryMatchEnd)
-                
+              
               # trim by match start and end of train seqs (klen > 1 only)
               locations <- as.numeric(colnames(kPosDataSub[,2:(ncol(kPosDataSub)-2)]))
               locations <- locations[locations >= qS & locations <= qE]
-                
+              
               # Subset test sequence by those locations and renumber them from 1:ncol
               kTest <- kPosDataSub[, ..locations]
               colnames(kTest) <- as.character(1:ncol(kTest))
-    
+              
               # Finally subset by locations for that specific model
               locations <- colnames(modelPos)[colnames(modelPos) %in% colnames(kTest)]
               kTest <- kTest[, ..locations]
-                
+              
               # Run forward algorithm and normalize score by the length of the test seq (number of kmers in this case), name with group name for model
               suppressWarnings(setNames(forward(model, as.character(kTest[1,]), odds = TRUE)$score / length(as.character(kTest[1,])), groupDat))
-                
+              
             # otherwise forego the blast check, not ideal but at least still gives a score
             } else {
               # Else simply remove recordID, klen and fold columns
@@ -2665,23 +2702,23 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
               # Run forward algorithm and normalize score by the length of the test seq (number of kmers in this case), name with group name for model
               suppressWarnings(setNames(forward(model, as.character(kTest[1,]), odds = TRUE)$score / length(as.character(kTest[1,])), groupDat))
             }
-              
-          # If running kmer length 1
+            
+            # If running kmer length 1
           } else {
             # Else simply remove recordID, klen and fold columns
             locations <- as.numeric(colnames(kPosDataSub[,2:(ncol(kPosDataSub)-2)]))
-              
+            
             # Subset test sequence by those locations
             kTest <- kPosDataSub[, ..locations]
-              
+            
             # Run forward algorithm and normalize score by the length of the test seq (number of nucleotides in this case), name with group name for model
             suppressWarnings(setNames(forward(model, as.character(kTest[1,]), odds = TRUE)$score / length(as.character(kTest[1,])), groupDat))
           }
-        # Else just set a score of -10
+          # Else just set a score of -10
         } else { setNames(-10, models[[j]]$modelData$Group) }
       })
       
-    # If a mixed length model
+      # If a mixed length model
     } else {
       # Extract unique kmers from the model data for each unique group, then name with klen
       uniqModelK <- lapply(models, function(model) {
@@ -2695,7 +2732,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
         kPosDataSub <- foreach(j = 1:length(uniqModelK)) %do% { 
           kPosDataSub[klen %in% unique(names(uniqModelK[[j]]))]
         }
-      # Return an empty list if no data
+        # Return an empty list if no data
       } else {
         kPosDataSub <- list()  
       }
@@ -2703,49 +2740,49 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
       # Actually run the test sequence on the models with the forward algorithm
       probsF <- unlist(foreach(j=1:length(uniqModelK)) %do% {
         if(models[[j]]$modelData$success == TRUE){
-            
+          
           # group being compared
           groupDat <- models[[j]]$modelData$Group
           #print(paste0(foldD, "_", klenD, "_", groupDat, "_", j, sep=""))
-
+          
           # blastCheck db table
           blastCheck <- .kphmm_blastCheck(dfTaxa[recordID == uniqRec, .(Id = recordID, Seq = dna)][1,], 
                                           groupDict[(group == groupDat & folds == foldD), .(Id = recordID, Seq = dna)])
-            
+          
           # if blastCheck does not have 0 rows, continue
           if(nrow(blastCheck)!=0){
             
             # Query match start and end
             qS <- as.numeric(blastCheck$QueryMatchStart)
             qE <- as.numeric(blastCheck$QueryMatchEnd)
-              
+            
             # trim by match start and end of train seqs (klen > 1 only)
             klenCol <- kPosDataSub[[j]][, "klen"]
             locations <- as.numeric(colnames(kPosDataSub[[j]][,2:(ncol(kPosDataSub[[j]])-2)]))
             locations <- locations[locations >= qS & locations <= qE]
-              
+            
             # Subset test sequence by those locations and renumber them from 1:ncol, add back a klength column
             kPosDataSub[[j]] <- kPosDataSub[[j]][, ..locations]
             colnames(kPosDataSub[[j]]) <- as.character(1:ncol(kPosDataSub[[j]]))
-              
+            
             # Split data table by klen and then cbind together
             kPosDataSub[[j]][, klen := klenCol]
             kPosDataSub[[j]] <- split(kPosDataSub[[j]], by = "klen")
             kPosDataSub[[j]] <- do.call(cbind, kPosDataSub[[j]])
-              
+            
             # Read in the model data
             model <- read_dbTable(dbPath, models[[j]]$modelData$model)
             modelPos <- model$alignment
-              
+            
             # Finally subset by kmer positions for that specific model
             colnames(modelPos) <- gsub("_",".",colnames(modelPos))
             locations <- colnames(modelPos)[colnames(modelPos) %in% colnames(kPosDataSub[[j]])]
             kPosDataSub[[j]] <- kPosDataSub[[j]][, ..locations]
-              
+            
             # Forward score normalized by num kmers in test sequence
             suppressWarnings(setNames(forward(model, as.character(kPosDataSub[[j]][1,]), odds = TRUE)$score / length(as.character(kPosDataSub[[j]][1,])), groupDat))
-              
-            # otherwise forego the blast check, not ideal but at least still gives a score
+            
+          # otherwise forego the blast check, not ideal but at least still gives a score
           } else {
             klenCol <- kPosDataSub[[j]][, "klen"]
             locations <- as.numeric(colnames(kPosDataSub[[j]][,2:(ncol(kPosDataSub[[j]])-2)]))
@@ -2768,7 +2805,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
             # Forward score normalized by num kmers in test sequence
             suppressWarnings(setNames(forward(model, as.character(kPosDataSub[[j]][1,]), odds = TRUE)$score / length(as.character(kPosDataSub[[j]][1,])), groupDat))
           }
-        # Else just set a score of -10
+          # Else just set a score of -10
         } else { setNames(-10, models[[j]]$modelData$Group) }
       })
     }
@@ -2824,7 +2861,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
         }
       }
       
-    # Else simply return a dataframe with no data for group and -10 for z-score
+      # Else simply return a dataframe with no data for group and -10 for z-score
     } else {
       kTestProb <- data.table("recordID" = uniqRec,
                               "z_score" = -10,
@@ -2834,7 +2871,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
                               "klen" = klenD)
     }
     
-  # Else simply return a dataframe with no data for group and -10 for z-score
+    # Else simply return a dataframe with no data for group and -10 for z-score
   } else {
     kTestProb <- data.table("recordID" = uniqRec,
                             "z_score" = -10,
@@ -2843,7 +2880,7 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
                             "fold" = foldD, 
                             "klen" = klenD)
   }
-
+  
   # Bench end
   benchE <- .bench_Func(runBenchmark, klenD, "kphmm_ClassifyCV", "None", 0, "End")
   
@@ -2882,7 +2919,9 @@ kphmm_ClassifyCV <- function(kmerData, modelData, numFolds, subclassRank, klen, 
     mem <- as.numeric(pryr::mem_used())
     time <- Sys.time()
     # Combine in a DT and return
-    bench <- data.table("mem"=mem, "time"=time, "dbSize"=dbSize, "klen"=klen, "funcName"=funcName, "subFuncName"=subFunc, "stORend"=stORend)
+    bench <- data.table("mem"=mem, "time"=time, "dbSize"=dbSize, 
+                        "klen"=klen, "funcName"=funcName, 
+                        "subFuncName"=subFunc, "stORend"=stORend)
   } else {
     bench <- NA
   }
