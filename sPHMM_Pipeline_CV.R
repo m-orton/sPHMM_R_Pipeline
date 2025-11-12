@@ -1,3 +1,5 @@
+# A strobemer-Based Profile Hidden Markov Model (sPHMM) approach to taxonomic identification of DNA sequence data - Main Pipeline
+
 # *** Ensure R version is updated to at least 4.4.1 prior to using this pipeline ***
 # *** Ensure HMMER3 is installed prior to using this pipeline (v 3.3.2 or higher) ***
 
@@ -8,13 +10,13 @@
 # strobemer_extract.h, strobemer_filter.cpp, strobemer_filter_unique.cpp
 # and must also include a folder containing the fasta files to be run on this pipeline ex: seqData/
 # ex: setwd("C:/sPHMM_testrun) ***
-setwd("D/sPHMM_Pipeline_May12") # This path will need to be changed
+setwd("D/sPHMM_Pipeline") # This path will need to be changed
 
 # Directory to be used for all files used by the HMMER3 analysis
 # HMMER3 is currently run on cygwin, thus all files used by HMMER3 are 
 # written to the cygwin/home/usr directory however HMMER3 can be run natively on MAC or Linux
 # and the directory can just be set to the R working directory above
-dirHMMER3 <- "D:/cygwin64/home/Matthew/" # This path will need to be changed
+dirHMMER3 <- "D:/cygwin64/home/username/" # This path will need to be changed
 
 ###### 2 - Packages & Functions for Pipeline Functionality ######
 
