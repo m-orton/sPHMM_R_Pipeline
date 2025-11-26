@@ -10,7 +10,7 @@
 - `strobemer_filter_unique.cpp`
 
 Working directory must also include a folder containing the fasta files to be run on this pipeline ex: seqData/
-A small barcode dataset (Branchiopoda) from BOLD (https://boldsystems.org/data/api/?type=webservices#combined) has been added
+A small barcode dataset (Branchiopoda) from BOLD (https://boldsystems.org/) has been added
 to run tests with the pipeline.
 
 #### Functions get loaded from a separate R script and must be loaded before the analysis proceeds
