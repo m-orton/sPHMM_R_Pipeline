@@ -20,7 +20,7 @@ to run tests with the pipeline.
 source("sPHMM_Functions.R")
 
 #### GPL-Licensed Code Attribution
-The following files were renamed (and some modified) from the original repository:
+The following files were renamed from the original repository:
 - `strobemer_extract.h`  (formerly `strobemer.h`, unmodified)
 - `strobemer_extract.cpp` (formerly `strobemer.cpp`, unmodified)
 
