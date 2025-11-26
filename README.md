@@ -6,6 +6,6 @@ strobemer_extract.h, strobemer_filter.cpp, strobemer_filter_unique.cpp and must 
 folder containing the fasta files to be run on this pipeline ex: seqData/
 
 #### Functions get loaded from a separate R script and must be loaded before the analysis proceeds
-source("kPHMM_Functions.R")
+source("sPHMM_Functions.R")
 
 
