@@ -9,7 +9,10 @@
 - `strobemer_filter.cpp`
 - `strobemer_filter_unique.cpp`
 
+HMMER3 must also be installed prior to using this pipeline (v 3.3.2 or higher)
+
 Working directory must also include a folder containing the fasta files to be run on this pipeline ex: seqData/
+
 A small barcode dataset (Branchiopoda) from BOLD (https://boldsystems.org/) has been added
 to run tests with the pipeline.
 
